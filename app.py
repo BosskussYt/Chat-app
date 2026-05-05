@@ -1,12 +1,14 @@
 from flask import Flask, request, jsonify
+import time
 
 app = Flask(__name__)
 
-# 🧠 Speicher im RAM
-rooms = {}  # {room: {"messages": [], "users": set()}}
+# 🧠 RAM STORAGE
+rooms = {}
 
-
-# 🏠 FRONTEND
+# -----------------------------
+# 🏠 HOME (Frontend)
+# -----------------------------
 @app.route("/")
 def home():
     return """
@@ -19,6 +21,7 @@ def home():
             input, button { padding:10px; margin:5px; }
             #chat { width:400px; height:250px; margin:auto; overflow-y:scroll; background:#2b2b2b; padding:10px; }
             #users { margin-top:10px; }
+            #community { position:fixed; bottom:10px; right:10px; background:#444; padding:10px; cursor:pointer; }
         </style>
     </head>
     <body>
@@ -41,6 +44,8 @@ def home():
 
             <div id="users"></div>
         </div>
+
+        <div id="community">🏆 Community</div>
 
         <script>
             let name = "";
@@ -88,6 +93,10 @@ def home():
 
                 document.getElementById("users").innerHTML =
                     "👥 Online: " + data.users.join(", ");
+
+                if (data.community) {
+                    document.getElementById("community").innerText = "🏆 COMMUNITY ACTIVE";
+                }
             }
         </script>
 
@@ -95,8 +104,9 @@ def home():
     </html>
     """
 
-
-# 💬 MESSAGE SENDEN
+# -----------------------------
+# 💬 SEND MESSAGE
+# -----------------------------
 @app.route("/send", methods=["POST"])
 def send():
     data = request.get_json()
@@ -105,41 +115,93 @@ def send():
     room = data["room"]
     msg = data["msg"]
 
-    # 🏠 Raum erstellen wenn nicht existiert
+    now = time.time()
+
     if room not in rooms:
-        rooms[room] = {"messages": [], "users": set()}
+        rooms[room] = {
+            "messages": [],
+            "users": {},
+            "msg_count": 0,
+            "is_community": False,
+            "expires": 0
+        }
 
-    # 👤 Username nur 1x pro Raum erlauben
-    if name not in rooms[room]["users"]:
-        rooms[room]["users"].add(name)
+    r = rooms[room]
 
-    # 💬 Nachricht speichern
-    rooms[room]["messages"].append({
-        "name": name,
-        "msg": msg
-    })
+    # 👤 User online
+    r["users"][name] = now
 
-    # 🧹 LIMIT 100 Nachrichten
-    if len(rooms[room]["messages"]) > 100:
-        rooms[room]["messages"].pop(0)
+    # 💬 Message speichern
+    r["messages"].append({"name": name, "msg": msg})
+
+    # 🧹 Limit 100 messages
+    if len(r["messages"]) > 100:
+        r["messages"].pop(0)
+
+    # 📊 Counter
+    r["msg_count"] += 1
+
+    # 🏆 Community erstellen
+    if not r["is_community"] and r["msg_count"] >= 1000:
+        r["is_community"] = True
+        r["expires"] = now + 172800  # 2 Tage
+
+    # ⏳ Community verlängern
+    if r["is_community"] and r["msg_count"] >= 2000:
+        r["expires"] += 172800
+        r["msg_count"] = 0
 
     return jsonify({"status": "ok"})
 
-
-# 📥 DATEN HOLEN
+# -----------------------------
+# 📥 GET DATA
+# -----------------------------
 @app.route("/get")
 def get():
     room = request.args.get("room")
 
+    cleanup()
+
     if room not in rooms:
-        return jsonify({"messages": [], "users": []})
+        return jsonify({"messages": [], "users": [], "community": False})
+
+    r = rooms[room]
 
     return jsonify({
-        "messages": rooms[room]["messages"],
-        "users": list(rooms[room]["users"])
+        "messages": r["messages"],
+        "users": list(r["users"].keys()),
+        "community": r["is_community"]
     })
 
+# -----------------------------
+# 🧹 CLEANUP SYSTEM
+# -----------------------------
+def cleanup():
+    now = time.time()
+    to_delete = []
 
+    for room, r in rooms.items():
+
+        # 👥 nur aktive user (15 sec)
+        r["users"] = {
+            u: t for u, t in r["users"].items()
+            if now - t < 15
+        }
+
+        if r["is_community"]:
+            # ⏳ Community Ablauf
+            if now > r["expires"]:
+                to_delete.append(room)
+        else:
+            # ❌ normale Räume löschen wenn leer
+            if len(r["users"]) == 0:
+                to_delete.append(room)
+
+    for r in to_delete:
+        del rooms[r]
+
+# -----------------------------
 # 🚀 START
+# -----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
