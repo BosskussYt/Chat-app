@@ -1,3 +1,14 @@
+from flask import Flask, request, jsonify
+import time
+
+app = Flask(__name__)
+
+# 🧠 Speicher (RAM)
+rooms = {}
+
+# -----------------------------
+# 🏠 FRONTEND
+# -----------------------------
 @app.route("/")
 def home():
     return """
@@ -15,7 +26,6 @@ body {
     display:flex;
 }
 
-/* LEFT SIDEBAR (SERVERS) */
 #servers {
     width:70px;
     background:#1e1f22;
@@ -38,7 +48,6 @@ body {
     cursor:pointer;
 }
 
-/* FRIENDS PANEL */
 #friends {
     width:200px;
     background:#2b2d31;
@@ -46,7 +55,6 @@ body {
     padding:10px;
 }
 
-/* CHAT AREA */
 #chatArea {
     flex:1;
     display:flex;
@@ -87,29 +95,21 @@ button {
     margin:5px 0;
 }
 
-.small {
-    font-size:12px;
-    opacity:0.7;
-}
-
 </style>
 </head>
 
 <body>
 
-<!-- SERVERS -->
 <div id="servers">
     <div class="server">S</div>
     <div class="server">+</div>
 </div>
 
-<!-- FRIENDS -->
 <div id="friends">
     <h3>👥 Friends</h3>
-    <div class="small">online system coming</div>
+    <div style="font-size:12px; opacity:0.6;">soon</div>
 </div>
 
-<!-- CHAT -->
 <div id="chatArea">
 
     <div id="chat"></div>
@@ -124,8 +124,12 @@ button {
 <script>
 
 let room = "main";
-let name = localStorage.getItem("name") || prompt("Name eingeben:");
-localStorage.setItem("name", name);
+let name = localStorage.getItem("name");
+
+if (!name) {
+    name = prompt("Name eingeben:");
+    localStorage.setItem("name", name);
+}
 
 async function sendMsg() {
     let msg = document.getElementById("msg").value;
@@ -161,3 +165,101 @@ load();
 </body>
 </html>
 """
+
+# -----------------------------
+# 💬 SEND MESSAGE
+# -----------------------------
+@app.route("/send", methods=["POST"])
+def send():
+    data = request.get_json()
+
+    name = data["name"]
+    room = data["room"]
+    msg = data["msg"]
+
+    now = time.time()
+
+    if room not in rooms:
+        rooms[room] = {
+            "messages": [],
+            "users": {},
+            "is_community": False,
+            "msg_count": 0,
+            "expires": 0
+        }
+
+    r = rooms[room]
+
+    # 👤 online user
+    r["users"][name] = now
+
+    # 💬 message
+    r["messages"].append({"name": name, "msg": msg})
+
+    # 🧹 limit 100 messages
+    if len(r["messages"]) > 100:
+        r["messages"].pop(0)
+
+    # 📊 counter
+    r["msg_count"] += 1
+
+    # 🏆 community (100 messages)
+    if not r["is_community"] and r["msg_count"] >= 100:
+        r["is_community"] = True
+        r["expires"] = now + 172800  # 2 Tage
+
+    # 🔥 extend (200 messages)
+    if r["is_community"] and r["msg_count"] >= 200:
+        r["expires"] += 172800
+        r["msg_count"] = 0
+
+    return jsonify({"status": "ok"})
+
+# -----------------------------
+# 📥 GET
+# -----------------------------
+@app.route("/get")
+def get():
+    room = request.args.get("room")
+
+    cleanup()
+
+    if room not in rooms:
+        return jsonify({"messages": []})
+
+    return jsonify({
+        "messages": rooms[room]["messages"]
+    })
+
+# -----------------------------
+# 🧹 CLEANUP
+# -----------------------------
+def cleanup():
+    now = time.time()
+    to_delete = []
+
+    for room, r in rooms.items():
+
+        # ❌ remove inactive users
+        r["users"] = {
+            u: t for u, t in r["users"].items()
+            if now - t < 15
+        }
+
+        # 🧹 delete empty rooms
+        if len(r["users"]) == 0:
+            to_delete.append(room)
+
+        # 🏆 community expiry
+        if r["is_community"]:
+            if now > r["expires"]:
+                to_delete.append(room)
+
+    for r in to_delete:
+        del rooms[r]
+
+# -----------------------------
+# 🚀 START
+# -----------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
