@@ -3,8 +3,13 @@ import time
 
 app = Flask(__name__)
 
-# 🧠 Speicher (RAM)
-rooms = {}
+# -----------------------------
+# 🧠 STORAGE
+# -----------------------------
+users_online = {}
+friends = {}
+rooms = {"general": {"messages": [], "users": {}, "msg_count": 0}}
+servers = {}
 
 # -----------------------------
 # 🏠 FRONTEND
@@ -15,7 +20,7 @@ def home():
 <!DOCTYPE html>
 <html>
 <head>
-<title>Mini Discord</title>
+<title>Mini Discord+</title>
 
 <style>
 body {
@@ -26,58 +31,35 @@ body {
     display:flex;
 }
 
-#servers {
-    width:70px;
-    background:#1e1f22;
-    height:100vh;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    padding-top:10px;
-}
-
-.server {
-    width:45px;
-    height:45px;
-    background:#5865F2;
-    border-radius:50%;
-    margin:10px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    cursor:pointer;
-}
-
-#friends {
+#sidebar {
     width:200px;
     background:#2b2d31;
     height:100vh;
     padding:10px;
 }
 
-#chatArea {
+#chat {
     flex:1;
     display:flex;
     flex-direction:column;
-    height:100vh;
 }
 
-#chat {
+#messages {
     flex:1;
     padding:10px;
     overflow-y:scroll;
 }
 
-#inputBar {
+#input {
     display:flex;
     padding:10px;
-    background:#2b2d31;
+    background:#1e1f22;
 }
 
 input {
     flex:1;
     padding:10px;
-    background:#1e1f22;
+    background:#2b2d31;
     border:none;
     color:white;
 }
@@ -91,8 +73,9 @@ button {
     cursor:pointer;
 }
 
-.msg {
-    margin:5px 0;
+.small {
+    font-size:12px;
+    opacity:0.7;
 }
 
 </style>
@@ -100,45 +83,54 @@ button {
 
 <body>
 
-<div id="servers">
-    <div class="server">S</div>
-    <div class="server">+</div>
-</div>
+<div id="sidebar">
+    <h3>👤 User</h3>
+    <div id="me"></div>
 
-<div id="friends">
     <h3>👥 Friends</h3>
-    <div style="font-size:12px; opacity:0.6;">soon</div>
+    <div id="friends"></div>
+
+    <input id="friendName" placeholder="Friend add">
+    <button onclick="addFriend()">Add</button>
+
+    <h3>🏠 Servers</h3>
+    <div id="servers"></div>
+
+    <div class="small">1000 msgs = Server</div>
 </div>
 
-<div id="chatArea">
+<div id="chat">
 
-    <div id="chat"></div>
+    <h3 style="padding:10px;">🌍 General Chat</h3>
 
-    <div id="inputBar">
-        <input id="msg" placeholder="Nachricht...">
-        <button onclick="sendMsg()">Send</button>
+    <div id="messages"></div>
+
+    <div id="input">
+        <input id="msg" placeholder="Message...">
+        <button onclick="send()">Send</button>
     </div>
 
 </div>
 
 <script>
 
-let room = "main";
 let name = localStorage.getItem("name");
 
 if (!name) {
-    name = prompt("Name eingeben:");
+    name = prompt("Enter name:");
     localStorage.setItem("name", name);
 }
 
-async function sendMsg() {
+document.getElementById("me").innerText = name;
+
+async function send() {
     let msg = document.getElementById("msg").value;
     if (!msg) return;
 
     await fetch("/send", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({name, room, msg})
+        body:JSON.stringify({name, room:"general", msg})
     });
 
     document.getElementById("msg").value = "";
@@ -146,15 +138,33 @@ async function sendMsg() {
 }
 
 async function load() {
-    let res = await fetch("/get?room=" + room + "&name=" + name);
+    let res = await fetch("/get?room=general&name=" + name);
     let data = await res.json();
 
-    let chat = document.getElementById("chat");
-    chat.innerHTML = "";
+    let m = document.getElementById("messages");
+    m.innerHTML = "";
 
-    data.messages.forEach(m => {
-        chat.innerHTML += "<div class='msg'><b>" + m.name + ":</b> " + m.msg + "</div>";
+    data.messages.forEach(x => {
+        m.innerHTML += "<div><b>" + x.name + ":</b> " + x.msg + "</div>";
     });
+
+    document.getElementById("friends").innerHTML =
+        data.friends.join("<br>");
+
+    document.getElementById("servers").innerHTML =
+        data.servers.join("<br>");
+}
+
+async function addFriend() {
+    let f = document.getElementById("friendName").value;
+
+    await fetch("/friend", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name, friend:f})
+    });
+
+    load();
 }
 
 setInterval(load, 1000);
@@ -177,43 +187,24 @@ def send():
     room = data["room"]
     msg = data["msg"]
 
-    now = time.time()
-
     if room not in rooms:
-        rooms[room] = {
-            "messages": [],
-            "users": {},
-            "is_community": False,
-            "msg_count": 0,
-            "expires": 0
-        }
+        rooms[room] = {"messages": [], "users": {}, "msg_count": 0}
 
     r = rooms[room]
 
-    # 👤 online user
-    r["users"][name] = now
-
-    # 💬 message
     r["messages"].append({"name": name, "msg": msg})
-
-    # 🧹 limit 100 messages
-    if len(r["messages"]) > 100:
-        r["messages"].pop(0)
-
-    # 📊 counter
+    r["users"][name] = time.time()
     r["msg_count"] += 1
 
-    # 🏆 community (100 messages)
-    if not r["is_community"] and r["msg_count"] >= 100:
-        r["is_community"] = True
-        r["expires"] = now + 172800  # 2 Tage
-
-    # 🔥 extend (200 messages)
-    if r["is_community"] and r["msg_count"] >= 200:
-        r["expires"] += 172800
+    # 🏗️ SERVER CREATION (1000 msgs)
+    if r["msg_count"] >= 1000:
+        if name not in servers:
+            servers[name] = []
+        if len(servers[name]) < 3:
+            servers[name].append("server_" + str(len(servers[name]) + 1))
         r["msg_count"] = 0
 
-    return jsonify({"status": "ok"})
+    return jsonify({"ok": True})
 
 # -----------------------------
 # 📥 GET
@@ -221,42 +212,36 @@ def send():
 @app.route("/get")
 def get():
     room = request.args.get("room")
-
-    cleanup()
+    name = request.args.get("name")
 
     if room not in rooms:
-        return jsonify({"messages": []})
+        return jsonify({"messages": [], "friends": [], "servers": []})
+
+    r = rooms[room]
 
     return jsonify({
-        "messages": rooms[room]["messages"]
+        "messages": r["messages"],
+        "friends": friends.get(name, []),
+        "servers": servers.get(name, [])
     })
 
 # -----------------------------
-# 🧹 CLEANUP
+# 👥 FRIENDS
 # -----------------------------
-def cleanup():
-    now = time.time()
-    to_delete = []
+@app.route("/friend", methods=["POST"])
+def friend():
+    data = request.get_json()
 
-    for room, r in rooms.items():
+    name = data["name"]
+    fr = data["friend"]
 
-        # ❌ remove inactive users
-        r["users"] = {
-            u: t for u, t in r["users"].items()
-            if now - t < 15
-        }
+    if name not in friends:
+        friends[name] = []
 
-        # 🧹 delete empty rooms
-        if len(r["users"]) == 0:
-            to_delete.append(room)
+    if fr not in friends[name]:
+        friends[name].append(fr)
 
-        # 🏆 community expiry
-        if r["is_community"]:
-            if now > r["expires"]:
-                to_delete.append(room)
-
-    for r in to_delete:
-        del rooms[r]
+    return jsonify({"ok": True})
 
 # -----------------------------
 # 🚀 START
