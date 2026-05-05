@@ -12,21 +12,12 @@ body {
     color:white;
 }
 
-/* servers */
-#servers {
-    width:70px;
-    background:#1e1f22;
-    height:100vh;
-}
-
-/* channels */
-#channels {
+#sidebar {
     width:220px;
     background:#2b2d31;
     height:100vh;
 }
 
-/* chat */
 #chat {
     flex:1;
     display:flex;
@@ -36,13 +27,12 @@ body {
 #messages {
     flex:1;
     padding:10px;
-    overflow-y:scroll;
+    overflow-y:auto;
 }
 
 #input {
     display:flex;
     padding:10px;
-    background:#2b2d31;
 }
 
 input {
@@ -60,12 +50,16 @@ button {
     color:white;
 }
 </style>
+
 </head>
 
 <body>
 
-<div id="servers"></div>
-<div id="channels"></div>
+<div id="sidebar">
+<h3>Rooms</h3>
+<button onclick="setRoom('general')"># general</button>
+<button onclick="setRoom('random')"># random</button>
+</div>
 
 <div id="chat">
 
@@ -88,9 +82,9 @@ let room = "general";
 
 socket.emit("join", {room});
 
-socket.on("message", (d) => {
+socket.on("message", (data) => {
     document.getElementById("messages").innerHTML +=
-    "<div><b>" + d.user + ":</b> " + d.msg + "</div>";
+    `<div><b>${data.user}:</b> ${data.msg}</div>`;
 });
 
 function send() {
@@ -103,6 +97,12 @@ function send() {
     });
 
     document.getElementById("msg").value = "";
+}
+
+function setRoom(r) {
+    room = r;
+    document.getElementById("messages").innerHTML = "";
+    socket.emit("join", {room});
 }
 </script>
 
