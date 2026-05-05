@@ -2,22 +2,11 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# 💬 Daten im RAM (wird gelöscht wenn Server neu startet)
-rooms = {}  # {room: {"messages": [], "users": {name: last_seen}}}
+# 🧠 Speicher im RAM
+rooms = {}  # {room: {"messages": [], "users": set()}}
 
 
-# 🧠 Helper
-def cleanup_rooms():
-    """löscht leere Räume"""
-    to_delete = []
-    for room, data in rooms.items():
-        if len(data["users"]) == 0:
-            to_delete.append(room)
-
-    for r in to_delete:
-        del rooms[r]
-
-
+# 🏠 FRONTEND
 @app.route("/")
 def home():
     return """
@@ -63,8 +52,6 @@ def home():
 
                 if (!name || !room) return;
 
-                localStorage.setItem("name", name);
-
                 document.getElementById("login").style.display = "none";
                 document.getElementById("chatBox").style.display = "block";
 
@@ -99,8 +86,8 @@ def home():
                     chat.innerHTML += "<p><b>" + m.name + ":</b> " + m.msg + "</p>";
                 });
 
-                let users = document.getElementById("users");
-                users.innerHTML = "👥 Online: " + data.users.join(", ");
+                document.getElementById("users").innerHTML =
+                    "👥 Online: " + data.users.join(", ");
             }
         </script>
 
@@ -109,6 +96,7 @@ def home():
     """
 
 
+# 💬 MESSAGE SENDEN
 @app.route("/send", methods=["POST"])
 def send():
     data = request.get_json()
@@ -117,15 +105,28 @@ def send():
     room = data["room"]
     msg = data["msg"]
 
+    # 🏠 Raum erstellen wenn nicht existiert
     if room not in rooms:
-        rooms[room] = {"messages": [], "users": {}}
+        rooms[room] = {"messages": [], "users": set()}
 
-    rooms[room]["messages"].append({"name": name, "msg": msg})
-    rooms[room]["users"][name] = True
+    # 👤 Username nur 1x pro Raum erlauben
+    if name not in rooms[room]["users"]:
+        rooms[room]["users"].add(name)
+
+    # 💬 Nachricht speichern
+    rooms[room]["messages"].append({
+        "name": name,
+        "msg": msg
+    })
+
+    # 🧹 LIMIT 100 Nachrichten
+    if len(rooms[room]["messages"]) > 100:
+        rooms[room]["messages"].pop(0)
 
     return jsonify({"status": "ok"})
 
 
+# 📥 DATEN HOLEN
 @app.route("/get")
 def get():
     room = request.args.get("room")
@@ -133,14 +134,12 @@ def get():
     if room not in rooms:
         return jsonify({"messages": [], "users": []})
 
-    # user cleanup (einfacher online check)
-    users = list(rooms[room]["users"].keys())
-
     return jsonify({
         "messages": rooms[room]["messages"],
-        "users": users
+        "users": list(rooms[room]["users"])
     })
 
 
+# 🚀 START
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
