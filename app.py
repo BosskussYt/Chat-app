@@ -2,7 +2,21 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-messages = []
+# 💬 Daten im RAM (wird gelöscht wenn Server neu startet)
+rooms = {}  # {room: {"messages": [], "users": {name: last_seen}}}
+
+
+# 🧠 Helper
+def cleanup_rooms():
+    """löscht leere Räume"""
+    to_delete = []
+    for room, data in rooms.items():
+        if len(data["users"]) == 0:
+            to_delete.append(room)
+
+    for r in to_delete:
+        del rooms[r]
+
 
 @app.route("/")
 def home():
@@ -10,34 +24,54 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Chat</title>
+        <title>Mini Discord</title>
         <style>
-            body { font-family: Arial; text-align:center; background:#1e1e1e; color:white; }
-            #chat { width:400px; height:300px; margin:auto; overflow-y:scroll; background:#2b2b2b; padding:10px; }
-            input { width:300px; padding:10px; }
-            button { padding:10px; cursor:pointer; }
+            body { font-family: Arial; background:#1e1e1e; color:white; text-align:center; }
+            input, button { padding:10px; margin:5px; }
+            #chat { width:400px; height:250px; margin:auto; overflow-y:scroll; background:#2b2b2b; padding:10px; }
+            #users { margin-top:10px; }
         </style>
     </head>
-
     <body>
-        <h1>💬 Chat</h1>
 
-        <div id="chat"></div><br>
+        <h1>💬 Mini Discord</h1>
 
-        <input id="msg" placeholder="Nachricht...">
-        <button onclick="sendMsg()">Senden</button>
+        <div id="login">
+            <input id="name" placeholder="Name">
+            <input id="room" placeholder="Raum">
+            <button onclick="join()">Join</button>
+        </div>
+
+        <div id="chatBox" style="display:none;">
+            <h3 id="info"></h3>
+
+            <div id="chat"></div>
+
+            <input id="msg" placeholder="Nachricht">
+            <button onclick="sendMsg()">Senden</button>
+
+            <div id="users"></div>
+        </div>
 
         <script>
-            async function load() {
-                let res = await fetch("/get");
-                let data = await res.json();
+            let name = "";
+            let room = "";
 
-                let chat = document.getElementById("chat");
-                chat.innerHTML = "";
+            function join() {
+                name = document.getElementById("name").value;
+                room = document.getElementById("room").value;
 
-                data.forEach(m => {
-                    chat.innerHTML += "<p>" + m + "</p>";
-                });
+                if (!name || !room) return;
+
+                localStorage.setItem("name", name);
+
+                document.getElementById("login").style.display = "none";
+                document.getElementById("chatBox").style.display = "block";
+
+                document.getElementById("info").innerText = "Raum: " + room;
+
+                setInterval(load, 1000);
+                load();
             }
 
             async function sendMsg() {
@@ -46,38 +80,67 @@ def home():
 
                 await fetch("/send", {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ msg: msg })
+                    headers: {"Content-Type":"application/json"},
+                    body: JSON.stringify({name, room, msg})
                 });
 
                 document.getElementById("msg").value = "";
                 load();
             }
 
-            setInterval(load, 1000);
-            load();
+            async function load() {
+                let res = await fetch("/get?room=" + room);
+                let data = await res.json();
+
+                let chat = document.getElementById("chat");
+                chat.innerHTML = "";
+
+                data.messages.forEach(m => {
+                    chat.innerHTML += "<p><b>" + m.name + ":</b> " + m.msg + "</p>";
+                });
+
+                let users = document.getElementById("users");
+                users.innerHTML = "👥 Online: " + data.users.join(", ");
+            }
         </script>
 
     </body>
     </html>
     """
 
+
 @app.route("/send", methods=["POST"])
 def send():
-    data = request.get_json(force=True)
-    msg = data.get("msg")
+    data = request.get_json()
 
-    if msg:
-        messages.append(msg)
-        return jsonify({"status": "ok"})
+    name = data["name"]
+    room = data["room"]
+    msg = data["msg"]
 
-    return jsonify({"status": "error"}), 400
+    if room not in rooms:
+        rooms[room] = {"messages": [], "users": {}}
 
-@app.route("/get", methods=["GET"])
+    rooms[room]["messages"].append({"name": name, "msg": msg})
+    rooms[room]["users"][name] = True
+
+    return jsonify({"status": "ok"})
+
+
+@app.route("/get")
 def get():
-    return jsonify(messages)
+    room = request.args.get("room")
+
+    if room not in rooms:
+        return jsonify({"messages": [], "users": []})
+
+    # user cleanup (einfacher online check)
+    users = list(rooms[room]["users"].keys())
+
+    return jsonify({
+        "messages": rooms[room]["messages"],
+        "users": users
+    })
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
