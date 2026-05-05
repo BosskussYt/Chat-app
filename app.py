@@ -1,3 +1,9 @@
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+messages = []
+
 @app.route("/")
 def home():
     return """
@@ -19,10 +25,10 @@ def home():
         <div id="chat"></div><br>
 
         <input id="msg" placeholder="Nachricht...">
-        <button id="sendBtn">Senden</button>
+        <button onclick="sendMsg()">Senden</button>
 
         <script>
-            async function loadMessages() {
+            async function load() {
                 let res = await fetch("/get");
                 let data = await res.json();
 
@@ -32,14 +38,10 @@ def home():
                 data.forEach(m => {
                     chat.innerHTML += "<p>" + m + "</p>";
                 });
-
-                chat.scrollTop = chat.scrollHeight;
             }
 
-            async function sendMessage() {
-                let msgInput = document.getElementById("msg");
-                let msg = msgInput.value;
-
+            async function sendMsg() {
+                let msg = document.getElementById("msg").value;
                 if (!msg) return;
 
                 await fetch("/send", {
@@ -50,17 +52,32 @@ def home():
                     body: JSON.stringify({ msg: msg })
                 });
 
-                msgInput.value = "";
-                loadMessages();
+                document.getElementById("msg").value = "";
+                load();
             }
 
-            document.getElementById("sendBtn").addEventListener("click", sendMessage);
-
-            loadMessages();
-            setInterval(loadMessages, 1000);
+            setInterval(load, 1000);
+            load();
         </script>
 
     </body>
     </html>
     """
+
+@app.route("/send", methods=["POST"])
+def send():
+    data = request.get_json(force=True)
+    msg = data.get("msg")
+
+    if msg:
+        messages.append(msg)
+        return jsonify({"status": "ok"})
+
+    return jsonify({"status": "error"}), 400
+
+@app.route("/get", methods=["GET"])
+def get():
+    return jsonify(messages)
+
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
