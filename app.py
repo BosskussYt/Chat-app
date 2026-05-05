@@ -1,242 +1,163 @@
-from flask import Flask, request, jsonify
-import time
-
-app = Flask(__name__)
-
-# 🧠 STORAGE
-rooms = {}
-
-# -----------------------------
-# 🏠 FRONTEND
-# -----------------------------
 @app.route("/")
 def home():
     return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Mini Discord</title>
-        <style>
-            body { font-family: Arial; background:#1e1e1e; color:white; text-align:center; }
-            input, button { padding:10px; margin:5px; }
-            #chat { width:400px; height:250px; margin:auto; overflow-y:scroll; background:#2b2b2b; padding:10px; }
-            #users { margin-top:10px; }
-            #community { position:fixed; bottom:10px; right:10px; background:#444; padding:10px; cursor:pointer; }
-        </style>
-    </head>
-    <body>
+<!DOCTYPE html>
+<html>
+<head>
+<title>Mini Discord</title>
 
-        <h1>💬 Mini Discord</h1>
+<style>
+body {
+    margin:0;
+    font-family: Arial;
+    background:#313338;
+    color:white;
+    display:flex;
+}
 
-        <div id="login">
-            <input id="name" placeholder="Name">
-            <input id="room" placeholder="Raum">
-            <button onclick="join()">Join</button>
-        </div>
+/* LEFT SIDEBAR (SERVERS) */
+#servers {
+    width:70px;
+    background:#1e1f22;
+    height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding-top:10px;
+}
 
-        <div id="chatBox" style="display:none;">
-            <h3 id="info"></h3>
-            <h4 id="stats"></h4>
+.server {
+    width:45px;
+    height:45px;
+    background:#5865F2;
+    border-radius:50%;
+    margin:10px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+}
 
-            <div id="chat"></div>
+/* FRIENDS PANEL */
+#friends {
+    width:200px;
+    background:#2b2d31;
+    height:100vh;
+    padding:10px;
+}
 
-            <input id="msg" placeholder="Nachricht">
-            <button onclick="sendMsg()">Senden</button>
+/* CHAT AREA */
+#chatArea {
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+}
 
-            <div id="users"></div>
+#chat {
+    flex:1;
+    padding:10px;
+    overflow-y:scroll;
+}
 
-            <button onclick="deleteCommunity()">🗑️ Community löschen</button>
-        </div>
+#inputBar {
+    display:flex;
+    padding:10px;
+    background:#2b2d31;
+}
 
-        <div id="community">🏆 Community</div>
+input {
+    flex:1;
+    padding:10px;
+    background:#1e1f22;
+    border:none;
+    color:white;
+}
 
-        <script>
-            let name = "";
-            let room = "";
+button {
+    padding:10px;
+    margin-left:5px;
+    background:#5865F2;
+    border:none;
+    color:white;
+    cursor:pointer;
+}
 
-            function join() {
-                name = document.getElementById("name").value;
-                room = document.getElementById("room").value;
+.msg {
+    margin:5px 0;
+}
 
-                if (!name || !room) return;
+.small {
+    font-size:12px;
+    opacity:0.7;
+}
 
-                document.getElementById("login").style.display = "none";
-                document.getElementById("chatBox").style.display = "block";
+</style>
+</head>
 
-                document.getElementById("info").innerText = "Raum: " + room;
+<body>
 
-                setInterval(load, 1000);
-                load();
-            }
+<!-- SERVERS -->
+<div id="servers">
+    <div class="server">S</div>
+    <div class="server">+</div>
+</div>
 
-            async function sendMsg() {
-                let msg = document.getElementById("msg").value;
-                if (!msg) return;
+<!-- FRIENDS -->
+<div id="friends">
+    <h3>👥 Friends</h3>
+    <div class="small">online system coming</div>
+</div>
 
-                await fetch("/send", {
-                    method: "POST",
-                    headers: {"Content-Type":"application/json"},
-                    body: JSON.stringify({name, room, msg})
-                });
+<!-- CHAT -->
+<div id="chatArea">
 
-                document.getElementById("msg").value = "";
-                load();
-            }
+    <div id="chat"></div>
 
-            async function deleteCommunity() {
-                await fetch("/delete", {
-                    method: "POST",
-                    headers: {"Content-Type":"application/json"},
-                    body: JSON.stringify({room, name})
-                });
+    <div id="inputBar">
+        <input id="msg" placeholder="Nachricht...">
+        <button onclick="sendMsg()">Send</button>
+    </div>
 
-                alert("Community gelöscht!");
-                location.reload();
-            }
+</div>
 
-            async function load() {
-                let res = await fetch("/get?room=" + room + "&name=" + name);
-                let data = await res.json();
+<script>
 
-                let chat = document.getElementById("chat");
-                chat.innerHTML = "";
+let room = "main";
+let name = localStorage.getItem("name") || prompt("Name eingeben:");
+localStorage.setItem("name", name);
 
-                data.messages.forEach(m => {
-                    chat.innerHTML += "<p><b>" + m.name + ":</b> " + m.msg + "</p>";
-                });
+async function sendMsg() {
+    let msg = document.getElementById("msg").value;
+    if (!msg) return;
 
-                document.getElementById("users").innerHTML =
-                    "👥 Online: " + data.users.join(", ");
+    await fetch("/send", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name, room, msg})
+    });
 
-                document.getElementById("stats").innerText =
-                    "💬 Nachrichten im Raum: " + data.count;
+    document.getElementById("msg").value = "";
+    load();
+}
 
-                if (data.community) {
-                    document.getElementById("community").innerText = "🏆 COMMUNITY ACTIVE";
-                }
-            }
-        </script>
+async function load() {
+    let res = await fetch("/get?room=" + room + "&name=" + name);
+    let data = await res.json();
 
-    </body>
-    </html>
-    """
+    let chat = document.getElementById("chat");
+    chat.innerHTML = "";
 
-# -----------------------------
-# 💬 SEND
-# -----------------------------
-@app.route("/send", methods=["POST"])
-def send():
-    data = request.get_json()
+    data.messages.forEach(m => {
+        chat.innerHTML += "<div class='msg'><b>" + m.name + ":</b> " + m.msg + "</div>";
+    });
+}
 
-    name = data["name"]
-    room = data["room"]
-    msg = data["msg"]
+setInterval(load, 1000);
+load();
 
-    now = time.time()
+</script>
 
-    if room not in rooms:
-        rooms[room] = {
-            "messages": [],
-            "users": {},
-            "msg_count": 0,
-            "community_count": {},
-            "is_community": False,
-            "expires": 0
-        }
-
-    r = rooms[room]
-
-    # 👤 User online
-    r["users"][name] = now
-
-    # 💬 msg speichern
-    r["messages"].append({"name": name, "msg": msg})
-
-    if len(r["messages"]) > 100:
-        r["messages"].pop(0)
-
-    r["msg_count"] += 1
-
-    # 🏆 Community erstellen (100 msgs)
-    if not r["is_community"] and r["msg_count"] >= 100:
-
-        # 🧱 max 3 communities pro user
-        count = r["community_count"].get(name, 0)
-
-        if count < 3:
-            r["is_community"] = True
-            r["expires"] = now + 172800  # 2 Tage
-            r["community_count"][name] = count + 1
-
-    # 🔥 verlängern bei 200 msgs
-    if r["is_community"] and r["msg_count"] >= 200:
-        r["expires"] += 172800
-        r["msg_count"] = 0
-
-    return jsonify({"status": "ok"})
-
-# -----------------------------
-# 📥 GET
-# -----------------------------
-@app.route("/get")
-def get():
-    room = request.args.get("room")
-    name = request.args.get("name")
-
-    cleanup()
-
-    if room not in rooms:
-        return jsonify({"messages": [], "users": [], "community": False, "count": 0})
-
-    r = rooms[room]
-
-    return jsonify({
-        "messages": r["messages"],
-        "users": list(r["users"].keys()),
-        "community": r["is_community"],
-        "count": len(r["messages"])
-    })
-
-# -----------------------------
-# 🗑️ DELETE COMMUNITY
-# -----------------------------
-@app.route("/delete", methods=["POST"])
-def delete():
-    data = request.get_json()
-    room = data["room"]
-    name = data["name"]
-
-    if room in rooms:
-        del rooms[room]
-
-    return jsonify({"status": "deleted"})
-
-# -----------------------------
-# 🧹 CLEANUP
-# -----------------------------
-def cleanup():
-    now = time.time()
-    to_delete = []
-
-    for room, r in rooms.items():
-
-        r["users"] = {
-            u: t for u, t in r["users"].items()
-            if now - t < 15
-        }
-
-        if r["is_community"]:
-            if now > r["expires"]:
-                to_delete.append(room)
-        else:
-            if len(r["users"]) == 0:
-                to_delete.append(room)
-
-    for r in to_delete:
-        del rooms[r]
-
-# -----------------------------
-# 🚀 START
-# -----------------------------
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+</body>
+</html>
+"""
