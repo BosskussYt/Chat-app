@@ -4,53 +4,32 @@ app = Flask(__name__)
 
 messages = []
 
-# 🏠 CHAT WEBSEITE
+# 🏠 Chat Seite
 @app.route("/")
 def home():
     return """
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Mini Chat</title>
+        <title>Chat</title>
         <style>
-            body {
-                font-family: Arial;
-                background: #1e1e1e;
-                color: white;
-                text-align: center;
-            }
-            #chat {
-                width: 400px;
-                height: 300px;
-                margin: auto;
-                border: 1px solid gray;
-                overflow-y: scroll;
-                padding: 10px;
-                background: #2b2b2b;
-            }
-            input {
-                width: 300px;
-                padding: 10px;
-            }
-            button {
-                padding: 10px;
-                cursor: pointer;
-            }
+            body { font-family: Arial; text-align:center; background:#1e1e1e; color:white; }
+            #chat { width:400px; height:300px; margin:auto; overflow-y:scroll; background:#2b2b2b; padding:10px; }
+            input { width:300px; padding:10px; }
+            button { padding:10px; }
         </style>
     </head>
-
     <body>
-        <h1>💬 Mini Chat</h1>
 
-        <div id="chat"></div>
+        <h1>💬 Chat</h1>
 
-        <br>
+        <div id="chat"></div><br>
 
         <input id="msg" placeholder="Nachricht...">
         <button onclick="sendMsg()">Senden</button>
 
         <script>
-            async function loadMessages() {
+            async function load() {
                 let res = await fetch("/get");
                 let data = await res.json();
 
@@ -60,39 +39,42 @@ def home():
                 data.forEach(m => {
                     chat.innerHTML += "<p>" + m + "</p>";
                 });
-
-                chat.scrollTop = chat.scrollHeight;
             }
 
             async function sendMsg() {
                 let msg = document.getElementById("msg").value;
+
+                if (!msg) return;
 
                 await fetch("/send", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
-                    body: JSON.stringify({msg: msg})
+                    body: JSON.stringify({ msg: msg })
                 });
 
                 document.getElementById("msg").value = "";
-                loadMessages();
+                load();
             }
 
-            setInterval(loadMessages, 1000);
+            setInterval(load, 1000);
+            load();
         </script>
 
     </body>
     </html>
     """
 
-# 📩 Nachricht senden
+# 📩 Nachricht senden (FIXED)
 @app.route("/send", methods=["POST"])
 def send():
-    data = request.get_json()
+    data = request.get_json(force=True)
 
-    if data and "msg" in data:
-        messages.append(data["msg"])
+    msg = data.get("msg")
+
+    if msg:
+        messages.append(msg)
         return jsonify({"status": "ok"})
 
     return jsonify({"status": "error"}), 400
@@ -102,6 +84,6 @@ def send():
 def get():
     return jsonify(messages)
 
-# 🌐 START
+# 🌐 Start
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
