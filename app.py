@@ -1,26 +1,26 @@
 from flask import Flask, render_template, request, redirect, session
 from flask_socketio import SocketIO, join_room, send
 import sqlite3
-import time
+import eventlet
+
+eventlet.monkey_patch()
 
 app = Flask(__name__)
-app.secret_key = "secret"
-socketio = SocketIO(app)
+app.secret_key = "secret-key"
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# ---------------- DB ----------------
+# ---------------- DATABASE ----------------
 def db():
-    conn = sqlite3.connect("db.db")
+    conn = sqlite3.connect("data.db")
     return conn
 
-def init():
+def init_db():
     conn = db()
     c = conn.cursor()
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
-        password TEXT,
-        online INTEGER DEFAULT 0
+        username TEXT PRIMARY KEY
     )
     """)
 
@@ -29,72 +29,60 @@ def init():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         room TEXT,
         user TEXT,
-        msg TEXT,
-        time REAL
+        msg TEXT
     )
     """)
 
     conn.commit()
     conn.close()
 
-init()
+init_db()
 
-# ---------------- PAGES ----------------
+# ---------------- ROUTES ----------------
 @app.route("/")
 def index():
     if "user" not in session:
         return redirect("/login")
     return render_template("index.html", user=session["user"])
 
-@app.route("/login", methods=["GET","POST"])
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        u = request.form["user"]
-        p = request.form["pass"]
+        username = request.form["user"]
 
         conn = db()
         c = conn.cursor()
-
-        c.execute("SELECT * FROM users WHERE username=? AND password=?", (u,p))
-        user = c.fetchone()
-
-        if not user:
-            c.execute("INSERT INTO users VALUES (?, ?, 1)", (u,p))
-        else:
-            c.execute("UPDATE users SET online=1 WHERE username=?", (u,))
-
+        c.execute("INSERT OR IGNORE INTO users VALUES (?)", (username,))
         conn.commit()
         conn.close()
 
-        session["user"] = u
+        session["user"] = username
         return redirect("/")
 
     return """
     <form method="POST">
-    <input name="user" placeholder="User"><br>
-    <input name="pass" type="password" placeholder="Pass"><br>
-    <button>Login</button>
+        <input name="user" placeholder="Username">
+        <button>Join</button>
     </form>
     """
 
 # ---------------- SOCKET ----------------
 @socketio.on("join")
-def join(data):
+def on_join(data):
     join_room(data["room"])
 
 @socketio.on("message")
-def msg(data):
+def handle_message(data):
     conn = db()
     c = conn.cursor()
 
-    c.execute("INSERT INTO messages (room,user,msg,time) VALUES (?,?,?,?)",
-              (data["room"], data["user"], data["msg"], time.time()))
-
+    c.execute("INSERT INTO messages (room,user,msg) VALUES (?,?,?)",
+              (data["room"], data["user"], data["msg"]))
     conn.commit()
     conn.close()
 
     send(data, to=data["room"])
 
-# ---------------- RUN ----------------
+# ---------------- START ----------------
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=10000)
