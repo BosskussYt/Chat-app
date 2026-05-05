@@ -3,11 +3,11 @@ import time
 
 app = Flask(__name__)
 
-# 🧠 RAM STORAGE
+# 🧠 STORAGE
 rooms = {}
 
 # -----------------------------
-# 🏠 HOME (Frontend)
+# 🏠 FRONTEND
 # -----------------------------
 @app.route("/")
 def home():
@@ -36,6 +36,7 @@ def home():
 
         <div id="chatBox" style="display:none;">
             <h3 id="info"></h3>
+            <h4 id="stats"></h4>
 
             <div id="chat"></div>
 
@@ -43,6 +44,8 @@ def home():
             <button onclick="sendMsg()">Senden</button>
 
             <div id="users"></div>
+
+            <button onclick="deleteCommunity()">🗑️ Community löschen</button>
         </div>
 
         <div id="community">🏆 Community</div>
@@ -80,8 +83,19 @@ def home():
                 load();
             }
 
+            async function deleteCommunity() {
+                await fetch("/delete", {
+                    method: "POST",
+                    headers: {"Content-Type":"application/json"},
+                    body: JSON.stringify({room, name})
+                });
+
+                alert("Community gelöscht!");
+                location.reload();
+            }
+
             async function load() {
-                let res = await fetch("/get?room=" + room);
+                let res = await fetch("/get?room=" + room + "&name=" + name);
                 let data = await res.json();
 
                 let chat = document.getElementById("chat");
@@ -94,6 +108,9 @@ def home():
                 document.getElementById("users").innerHTML =
                     "👥 Online: " + data.users.join(", ");
 
+                document.getElementById("stats").innerText =
+                    "💬 Nachrichten im Raum: " + data.count;
+
                 if (data.community) {
                     document.getElementById("community").innerText = "🏆 COMMUNITY ACTIVE";
                 }
@@ -105,7 +122,7 @@ def home():
     """
 
 # -----------------------------
-# 💬 SEND MESSAGE
+# 💬 SEND
 # -----------------------------
 @app.route("/send", methods=["POST"])
 def send():
@@ -122,6 +139,7 @@ def send():
             "messages": [],
             "users": {},
             "msg_count": 0,
+            "community_count": {},
             "is_community": False,
             "expires": 0
         }
@@ -131,50 +149,70 @@ def send():
     # 👤 User online
     r["users"][name] = now
 
-    # 💬 Message speichern
+    # 💬 msg speichern
     r["messages"].append({"name": name, "msg": msg})
 
-    # 🧹 Limit 100 messages
     if len(r["messages"]) > 100:
         r["messages"].pop(0)
 
-    # 📊 Counter
     r["msg_count"] += 1
 
-    # 🏆 Community erstellen
-    if not r["is_community"] and r["msg_count"] >= 1000:
-        r["is_community"] = True
-        r["expires"] = now + 172800  # 2 Tage
+    # 🏆 Community erstellen (100 msgs)
+    if not r["is_community"] and r["msg_count"] >= 100:
 
-    # ⏳ Community verlängern
-    if r["is_community"] and r["msg_count"] >= 2000:
+        # 🧱 max 3 communities pro user
+        count = r["community_count"].get(name, 0)
+
+        if count < 3:
+            r["is_community"] = True
+            r["expires"] = now + 172800  # 2 Tage
+            r["community_count"][name] = count + 1
+
+    # 🔥 verlängern bei 200 msgs
+    if r["is_community"] and r["msg_count"] >= 200:
         r["expires"] += 172800
         r["msg_count"] = 0
 
     return jsonify({"status": "ok"})
 
 # -----------------------------
-# 📥 GET DATA
+# 📥 GET
 # -----------------------------
 @app.route("/get")
 def get():
     room = request.args.get("room")
+    name = request.args.get("name")
 
     cleanup()
 
     if room not in rooms:
-        return jsonify({"messages": [], "users": [], "community": False})
+        return jsonify({"messages": [], "users": [], "community": False, "count": 0})
 
     r = rooms[room]
 
     return jsonify({
         "messages": r["messages"],
         "users": list(r["users"].keys()),
-        "community": r["is_community"]
+        "community": r["is_community"],
+        "count": len(r["messages"])
     })
 
 # -----------------------------
-# 🧹 CLEANUP SYSTEM
+# 🗑️ DELETE COMMUNITY
+# -----------------------------
+@app.route("/delete", methods=["POST"])
+def delete():
+    data = request.get_json()
+    room = data["room"]
+    name = data["name"]
+
+    if room in rooms:
+        del rooms[room]
+
+    return jsonify({"status": "deleted"})
+
+# -----------------------------
+# 🧹 CLEANUP
 # -----------------------------
 def cleanup():
     now = time.time()
@@ -182,18 +220,15 @@ def cleanup():
 
     for room, r in rooms.items():
 
-        # 👥 nur aktive user (15 sec)
         r["users"] = {
             u: t for u, t in r["users"].items()
             if now - t < 15
         }
 
         if r["is_community"]:
-            # ⏳ Community Ablauf
             if now > r["expires"]:
                 to_delete.append(room)
         else:
-            # ❌ normale Räume löschen wenn leer
             if len(r["users"]) == 0:
                 to_delete.append(room)
 
